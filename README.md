@@ -29,7 +29,7 @@ Options:
   -?|-h|--help       Display usage information.
 ```
 
-#Examples
+# Examples
 
 To create a single-file bundle from a multi-file publish directory:
 ```
