@@ -1,38 +1,48 @@
-# New Repo Project
+# .net Bundler
 
-The new-repo project is a default template for .NET Foundation projects. It's also probably a fine start for other .NET projects (have at it, but change the license). It contains the correct license, a decent README, and initial project structure (including a standard .gitignore for the Visual Studio family of products).
+This tool is a wrapper script to invoke the .net single-file bundler utilities provided by Microsoft.NET.HostModel library.
+It is intended as a testing tool for the developement of single-file bundler. 
+It facilitates testing of changes to Microsoft.NET.HostModel library and .net application host components before changes are committed and availalbe in the .net SDK.
 
-You can learn more about the project from the project [Documentation](Documentation).
 
-## Using New Repo
+# Usage
 
-You can simply `git clone` this project to get started. It is recommended that you don't preserve history of the project (it isn't generally meaningful) for your repo, but make a copy and `git init` your project from source.
+```
+.NET Core Bundler
+Usage: bundle <options>
 
-Consult [CHECKLIST.md] for helpful suggestions on preparing your repo to go public.
+Options:
+  --source <PATH>    Directory containing files to bundle (required).
+  --host <NAME>      Application host within source directory (required).
+  --app  <NAME>      Managed app within source directory (default <host-name>.dll).
+  --template <path>  Template Application host for this app.
+  --os <os>          One of Win|Linux|Osx (default Win)
+  --framework <tfm>  One of netcoreapp3.0|netcoreapp3.1|net5 (default 5.0)
+  --pdb              Embed PDB files.
+  --native           Embed native binaries.
+  --content          Embed content files.
+  --no-copy          Don't Copy excluded files to output directory.
+  --no-trim          Don't trim excluded files copied to output directory.
+  --no-bundle        Skip bundling, rewrite-host only
+  -o|--output <PATH> Output directory (default: current).
+  -d|--diagnostics   Enable diagnostic output.
+  -?|-h|--help       Display usage information.
+```
 
-## Building
+#Examples
 
-You don't "build" New Repo, however, this will be meaningful for many other projects.
+To create a single-file bundle from a multi-file publish directory:
+```
+bundle --source <publish-dir> --host <host-exe> -o <output-dir>
+```
 
-## Contributing
+To use a newly built apphost executable:
+(This option simply embeds the app.dll path in the provided apphost-exe, so that it is runnable) 
+```
+bundle --no-bundle --source <publish-dir> --template <apphost-exe> --host <new-exe> --app <app.dll> -o <output-dir>
+```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for information on contributing to this project.
-
-This project has adopted the code of conduct defined by the [Contributor Covenant](http://contributor-covenant.org/) 
-to clarify expected behavior in our community. For more information, see the [.NET Foundation Code of Conduct](http://www.dotnetfoundation.org/code-of-conduct).
-
-## License
-
-This project is licensed with the [MIT license](LICENSE).
-
-## .NET Foundation
-
-New Repo is a [.NET Foundation project](https://dotnetfoundation.org/projects).
-
-## Related Projects
-
-You should take a look at these related projects:
-
-- [.NET Core](https://github.com/dotnet/core)
-- [ASP.NET](https://github.com/aspnet)
-- [Mono](https://github.com/mono)
+To achieve the effect of dotnet publish /p:PublishSingleFile using new host components:
+```
+bundle --source <publish-dir> --template <apphost-exe> --host <new-exe> --app <app.dll> -o <output-dir>
+```
