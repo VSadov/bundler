@@ -41,7 +41,6 @@ namespace Bundle
         static OSPlatform OS;
         static Version Framework;
         static bool CopyExcluded = true;
-        static bool TrimExcluded = true;
 
         static void Usage()
         {
@@ -58,8 +57,7 @@ namespace Bundle
             Console.WriteLine("  --pdb              Embed PDB files.");
             Console.WriteLine("  --native           Embed native binaries.");
             Console.WriteLine("  --content          Embed content files.");
-            Console.WriteLine("  --no-copy          Don't Copy excluded files to output directory.");
-            Console.WriteLine("  --no-trim          Don't trim excluded files copied to output directory.");
+            Console.WriteLine("  --skip-excluded    Don't Copy excluded files to output directory.");
             Console.WriteLine("  --no-bundle        Skip bundling, rewrite-host only");
             Console.WriteLine("  -o|--output <PATH> Output directory (default: current).");
             Console.WriteLine("  -d|--diagnostics   Enable diagnostic output.");
@@ -148,12 +146,8 @@ namespace Bundle
                         framework = NextArg(arg);
                         break;
 
-                    case "--no-copy":
-                        CopyExcluded = true;
-                        break;
-
-                    case "--no-trim":
-                        TrimExcluded = false;
+                    case "--skip-excluded":
+                        CopyExcluded = false;
                         break;
 
                     case "--no-bundle":
@@ -284,16 +278,6 @@ namespace Bundle
             {
                 if (spec.Excluded)
                 {
-                    if (TrimExcluded &&
-                        !spec.BundleRelativePath.Contains("coreclr") &&
-                        !spec.BundleRelativePath.Contains("clrjit") &&
-                        !spec.BundleRelativePath.Contains("clrcompression") &&
-                        !spec.BundleRelativePath.Contains("hostfxr") &&
-                        !spec.BundleRelativePath.Contains("hostpolicy"))
-                    {
-                        continue;
-                    }
-
                     var outputPath = Path.Combine(OutputDir, spec.BundleRelativePath);
                     Directory.CreateDirectory(Path.GetDirectoryName(outputPath));
                     File.Copy(spec.SourcePath, outputPath, true);
