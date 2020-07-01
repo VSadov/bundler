@@ -294,7 +294,9 @@ namespace Bundle
                         continue;
                     }
 
-                    File.Copy(spec.SourcePath, Path.Combine(OutputDir, spec.BundleRelativePath), true);
+                    var outputPath = Path.Combine(OutputDir, spec.BundleRelativePath);
+                    Directory.CreateDirectory(Path.GetDirectoryName(outputPath));
+                    File.Copy(spec.SourcePath, outputPath, true);
                 }
             }
 
