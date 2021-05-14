@@ -8,6 +8,7 @@ using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Collections.Generic;
+using System.IO.MemoryMappedFiles;
 
 namespace Bundle
 {
@@ -38,6 +39,7 @@ namespace Bundle
         static string Template;
         static string App;
         static BundleOptions Options = BundleOptions.None;
+        static Architecture Architecture = Architecture.X64;
         static OSPlatform OS;
         static Version Framework;
         static bool CopyExcluded = true;
@@ -53,10 +55,12 @@ namespace Bundle
             Console.WriteLine("  --app  <NAME>      Managed app within source directory (default <host-name>.dll).");
             Console.WriteLine("  --template <path>  Template Application host for this app.");
             Console.WriteLine("  --os <os>          One of Win|Linux|Osx (default Win)");
-            Console.WriteLine("  --framework <tfm>  One of netcoreapp3.0|netcoreapp3.1|net5 (default 5.0)");
+            Console.WriteLine("  --framework <tfm>  One of netcoreapp3.0|netcoreapp3.1|net5|net6 (default net6)");
             Console.WriteLine("  --pdb              Embed PDB files.");
             Console.WriteLine("  --native           Embed native binaries.");
             Console.WriteLine("  --content          Embed content files.");
+            Console.WriteLine("  -a|--arch <arch>   One of x86|x64|arm|arm64 (default x64).");
+            Console.WriteLine("  --compress         Enable compression.");
             Console.WriteLine("  --skip-excluded    Don't Copy excluded files to output directory.");
             Console.WriteLine("  --no-bundle        Skip bundling, rewrite-host only");
             Console.WriteLine("  -o|--output <PATH> Output directory (default: current).");
@@ -86,7 +90,8 @@ namespace Bundle
             };
 
             string os = "win";
-            string framework = "net5";
+            string arch = "x64";
+            string framework = "net6";
 
             for (; i < args.Length; i++)
             {
@@ -116,6 +121,10 @@ namespace Bundle
                         Options |= BundleOptions.BundleAllContent;
                         break;
 
+                    case "--compress":
+                        Options |= BundleOptions.EnableCompression;
+                        break;
+
                     case "--host":
                         Host = NextArg(arg);
                         break;
@@ -140,6 +149,11 @@ namespace Bundle
 
                     case "--os":
                         os = NextArg(arg).ToLower();
+                        break;
+
+                    case "-a":
+                    case "-arch":
+                        arch = NextArg(arg).ToLower();
                         break;
 
                     case "--framework":
@@ -177,6 +191,28 @@ namespace Bundle
                     throw new ArgumentException("Unknown OS");
             }
 
+            switch (arch)
+            {
+                case "x86":
+                    Architecture = Architecture.X86;
+                    break;
+
+                case "x64":
+                    Architecture = Architecture.X64;
+                    break;
+
+                case "arm":
+                    Architecture = Architecture.Arm;
+                    break;
+
+                case "arm64":
+                    Architecture = Architecture.Arm64;
+                    break;
+
+                default:
+                    throw new ArgumentException("Unknown OS");
+            }
+
             switch (framework)
             {
                 case "netcoreapp3.0":
@@ -189,6 +225,10 @@ namespace Bundle
 
                 case "net5":
                     Framework = new Version(5, 0);
+                    break;
+
+                case "net6":
+                    Framework = new Version(6, 0);
                     break;
 
                 default:
@@ -253,7 +293,7 @@ namespace Bundle
                 return;
             }
 
-            Bundler bundler = new Bundler(Host, OutputDir, Options, OS, Framework, Diagnostics);
+            Bundler bundler = new Bundler(Host, OutputDir, Options, OS, Architecture, Framework, Diagnostics);
 
             // Get all files in the source directory and all sub-directories.
             string[] sources = Directory.GetFiles(SourceDir, searchPattern: "*", searchOption: SearchOption.AllDirectories);
@@ -283,7 +323,6 @@ namespace Bundle
                     File.Copy(spec.SourcePath, outputPath, true);
                 }
             }
-
         }
     }
 }

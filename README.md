@@ -17,10 +17,12 @@ Options:
   --app  <NAME>      Managed app within source directory (default <host-name>.dll).
   --template <path>  Template Application host for this app.
   --os <os>          One of Win|Linux|Osx (default Win)
-  --framework <tfm>  One of netcoreapp3.0|netcoreapp3.1|net5 (default 5.0)
+  --framework <tfm>  One of netcoreapp3.0|netcoreapp3.1|net5|net6 (default net6)
   --pdb              Embed PDB files.
   --native           Embed native binaries.
   --content          Embed content files.
+  -a|--arch <arch>   One of x86|x64|arm|arm64 (default x64).
+  --compress         Enable compression.
   --no-copy          Don't Copy excluded files to output directory.
   --no-trim          Don't trim excluded files copied to output directory.
   --no-bundle        Skip bundling, rewrite-host only
