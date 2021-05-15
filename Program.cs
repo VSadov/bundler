@@ -9,6 +9,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Collections.Generic;
 using System.IO.MemoryMappedFiles;
+using System.IO.Compression;
 
 namespace Bundle
 {
@@ -23,6 +24,9 @@ namespace Bundle
             Bundle,
             CreateHost
         };
+
+        // unbundle option
+        static string UnbundleFile = null;
 
         // Modes
         static bool NeedHelp = false;
@@ -168,6 +172,10 @@ namespace Bundle
                         CreateBundle = false;
                         break;
 
+                    case "--unbundle":
+                        UnbundleFile = NextArg(arg);
+                        break;
+
                     default:
                         throw new ArgumentException("Invalid option: " + arg);
                 }
@@ -235,26 +243,29 @@ namespace Bundle
                     throw new ArgumentException("Unknown Framework");
             }
 
-            if (SourceDir == null)
+            if (UnbundleFile == null)
             {
-                throw new ArgumentException("Missing argument: --source");
-            }
-
-            if (Host == null)
-            {
-                throw new ArgumentException("Missing argument: --host");
-            }
-
-            if (CreateHost)
-            {
-                if (Template == null)
+                if (SourceDir == null)
                 {
-                    throw new ArgumentException("Missing argument: --template");
+                    throw new ArgumentException("Missing argument: --source");
                 }
 
-                if (App == null)
+                if (Host == null)
                 {
-                    App = Path.GetFileNameWithoutExtension(Host) + ".dll";
+                    throw new ArgumentException("Missing argument: --host");
+                }
+
+                if (CreateHost)
+                {
+                    if (Template == null)
+                    {
+                        throw new ArgumentException("Missing argument: --template");
+                    }
+
+                    if (App == null)
+                    {
+                        App = Path.GetFileNameWithoutExtension(Host) + ".dll";
+                    }
                 }
             }
 
@@ -280,6 +291,12 @@ namespace Bundle
             if (NeedHelp)
             {
                 Usage();
+                return;
+            }
+
+            if (UnbundleFile != null)
+            {
+                Unbundle(UnbundleFile, OutputDir);
                 return;
             }
 
@@ -322,6 +339,144 @@ namespace Bundle
                     Directory.CreateDirectory(Path.GetDirectoryName(outputPath));
                     File.Copy(spec.SourcePath, outputPath, true);
                 }
+            }
+        }
+
+        private static void Unbundle(string inputFile, string outputDir)
+        {
+            Microsoft.NET.HostModel.RetryUtil.RetryOnIOError(() =>
+            {
+                byte[] bundleMarker = {
+                    // 32 bytes represent the bundle signature: SHA-256 for ".net core bundle"
+                    0x8b, 0x12, 0x02, 0xb9, 0x6a, 0x61, 0x20, 0x38,
+                    0x72, 0x7b, 0x93, 0x02, 0x14, 0xd7, 0xa0, 0x32,
+                    0x13, 0xf5, 0xb9, 0xe6, 0xef, 0xae, 0x33, 0x18,
+                    0xee, 0x3b, 0x2d, 0xce, 0x24, 0xb3, 0x6a, 0xae
+                };
+
+                // TODO: this helper is internal
+                // int markerLocation = BinaryUtils.SearchInFile(memoryMappedViewAccessor, pattern);
+                int markerLocation = BinaryUtils.SearchInFile(inputFile, bundleMarker);
+
+                using var input = new FileStream(inputFile, FileMode.Open, FileAccess.Read);
+                using var reader = new BinaryReader(input);
+
+                input.Seek(markerLocation - sizeof(long), SeekOrigin.Begin);
+                long manifestOffset = reader.ReadInt64();
+
+                // parse manifest
+                input.Seek(manifestOffset, SeekOrigin.Begin);
+                var manifest = Manifest.FromReader(reader);
+
+                // extract contained files
+                byte[] buffer = new byte[4096];
+                long bundleStart = manifestOffset;
+                foreach (var file in manifest.Files)
+                {
+                    var filePath = Path.Combine(outputDir, file.RelativePath);
+                    Directory.CreateDirectory(Path.GetDirectoryName(filePath));
+                    using var output = new FileStream(filePath, FileMode.Create, FileAccess.Write);
+
+                    if (file.Offset < bundleStart)
+                    {
+                        bundleStart = file.Offset;
+                    }
+
+                    input.Seek(file.Offset, SeekOrigin.Begin);
+                    if (file.CompressedSize == 0)
+                    {
+                        // copy
+                        CopyBytes(input, output, file.Size, buffer);
+                    }
+                    else
+                    {
+                        // decompress
+                        using var decompress = new DeflateStream(input, CompressionMode.Decompress, leaveOpen: true);
+                        int read;
+                        while ((read = decompress.Read(buffer, 0, buffer.Length)) > 0)
+                        {
+                            output.Write(buffer, 0, read);
+                        }
+                    }
+                }
+
+                // copy host file up to the bundle location
+                var hostPath = Path.Combine(outputDir, Path.GetFileName(inputFile));
+                input.Seek(0, SeekOrigin.Begin);
+                using (var host = new FileStream(hostPath, FileMode.Create, FileAccess.Write))
+                {
+                    CopyBytes(input, host, bundleStart, buffer);
+                    host.Seek(markerLocation - sizeof(long), SeekOrigin.Begin);
+                    // erase manifest offset
+                    host.Write(stackalloc byte[sizeof(long)]);
+                }
+
+                // fix up host if it is a Mach-O
+                // TODO: this helper is internal
+                // Microsoft.NET.HostModel.AppHost.MachOUtils.AdjustHeadersForBundle(hostPath);
+                typeof(Bundler).Assembly.GetType("Microsoft.NET.HostModel.AppHost.MachOUtils").InvokeMember(
+                    "AdjustHeadersForBundle", 
+                    System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.InvokeMethod, 
+                    null, 
+                    null, 
+                    new object[]{hostPath});
+
+            });
+        }
+
+        private static void CopyBytes(FileStream input, FileStream output, long toCopy, byte[] buffer)
+        {
+            while (toCopy > 0)
+            {
+                var chunk = (int)Math.Min(toCopy, buffer.Length);
+                input.Read(buffer, 0, chunk);
+                output.Write(buffer, 0, chunk);
+                toCopy -= chunk;
+            }
+        }
+
+        public class Manifest : Microsoft.NET.HostModel.Bundle.Manifest
+        {
+            private Manifest(uint bundleMajorVersion, bool netcoreapp3CompatMode = false) : 
+                base(bundleMajorVersion, netcoreapp3CompatMode) 
+            {}
+
+            public static Manifest FromReader(BinaryReader reader)
+            {
+                var majorVersion = reader.ReadUInt32();
+                var minorVersion = reader.ReadUInt32();
+                var fileCount    = reader.ReadInt32();
+                var bundleID     = reader.ReadString();
+
+                bool netcoreapp3CompatMode = false;
+                if (majorVersion >= 2)
+                {
+                    var depsJsonOffset = reader.ReadInt64();
+                    var depsJsonSize = reader.ReadInt64();
+
+                    var runtimeconfigJsonOffset = reader.ReadInt64();
+                    var runtimeconfigJsonSize = reader.ReadInt64();
+
+                    var flags = reader.ReadUInt64();
+                    netcoreapp3CompatMode = flags != 0;
+                }
+
+                var manifest = new Manifest(majorVersion, netcoreapp3CompatMode);
+
+                for (int i = 0; i < fileCount; i++)
+                {
+                    var offset = reader.ReadInt64();
+                    var size = reader.ReadInt64();
+
+                    // compression is used only in version 6.0+
+                    var compressedSize = majorVersion >= 6 ? reader.ReadInt64() : 0;
+                    var fileType = (FileType)reader.ReadByte();
+                    var relativePath = reader.ReadString();
+
+                    manifest.AddEntry(fileType, relativePath, offset, size, compressedSize, majorVersion);
+                }
+
+                return manifest;
             }
         }
     }
